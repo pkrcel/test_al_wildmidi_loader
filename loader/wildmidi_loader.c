@@ -97,7 +97,6 @@ WM_FILE_DATA *WM_open(ALLEGRO_FILE *fp){
       ALLEGRO_WARN("Failed to properly Initialize WildMidi!\n");
       return NULL;
    }
-
    /*
     * Transfer file to memory buffer, so we can handle that with
     * WildMidi_OpenBuffer(), cause otherwise this could not have an
@@ -202,7 +201,7 @@ static size_t WM_stream_update(ALLEGRO_AUDIO_STREAM *stream, void *data,
    WM_FILE_DATA *wmfile = (WM_FILE_DATA*) al_get_audio_stream_userdata(stream);
    ALLEGRO_PLAYMODE loopmode= al_get_audio_stream_playmode(stream);
    const int bytes_per_sample = 4;
-   int samples, samples_read;
+   int samples, bytes_read;
    double ctime, btime;
 
    ctime = WM_stream_get_position(stream);
@@ -220,12 +219,12 @@ static size_t WM_stream_update(ALLEGRO_AUDIO_STREAM *stream, void *data,
    if (samples < 0)
       return 0;
 
-   samples_read = WM_read(wmfile, data, samples);
+   bytes_read = WM_read(wmfile, data, samples * bytes_per_sample);
 
-   return samples_read * bytes_per_sample;
+   return bytes_read;
 }
 
-void wildmidi_stop_feed_thread(ALLEGRO_AUDIO_STREAM *stream)
+void WM_stop_feed_thread(ALLEGRO_AUDIO_STREAM *stream)
 {
    ALLEGRO_EVENT quit_event;
    WM_FILE_DATA *wmfile = al_get_audio_stream_userdata(stream);
@@ -246,7 +245,7 @@ static void WM_stream_close(ALLEGRO_AUDIO_STREAM *stream)
 {
    WM_FILE_DATA *wmfile = (WM_FILE_DATA*) al_get_audio_stream_userdata(stream);
 
-   wildmidi_stop_feed_thread(stream);
+   WM_stop_feed_thread(stream);
 
    al_fclose(wmfile->fp);
    WM_close(wmfile);
@@ -287,7 +286,10 @@ void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
 
          fragment = al_get_audio_stream_fragment(stream);
          if (!fragment) {
-            /* This is not an error. */
+            /* This is not an error.
+             * we might have more than one stream firing events and this might
+             * not have free fragments
+             */
             continue;
          }
 
@@ -295,9 +297,9 @@ void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
                al_get_channel_count(ALLEGRO_CHANNEL_CONF_2) *
                al_get_audio_depth_size(ALLEGRO_AUDIO_DEPTH_INT16);
 
-         //maybe_lock_mutex(stream->spl.mutex);
+         al_lock_mutex(al_get_audio_stream_mutex(stream));
          bytes_written = WM_stream_update(stream, fragment, bytes);
-         //maybe_unlock_mutex(stream->spl.mutex);
+         al_unlock_mutex(al_get_audio_stream_mutex(stream));
 
         /* In case it reaches the end of the stream source, stream feeder will
          * fill the remaining space with silence. If we should loop, rewind the
@@ -308,11 +310,11 @@ void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
                 al_get_audio_stream_playmode(stream) == _ALLEGRO_PLAYMODE_STREAM_ONEDIR) {
             size_t bw;
             WM_stream_rewind(stream);
-            //maybe_lock_mutex(stream->spl.mutex);
+            al_lock_mutex(al_get_audio_stream_mutex(stream));
             bw = WM_stream_update(stream, fragment + bytes_written,
                bytes - bytes_written);
             bytes_written += bw;
-            //maybe_unlock_mutex(stream->spl.mutex);
+            al_unlock_mutex(al_get_audio_stream_mutex(stream));
          }
 
          if (!al_set_audio_stream_fragment(stream, fragment)) {
