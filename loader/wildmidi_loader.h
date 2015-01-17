@@ -25,7 +25,14 @@
 typedef struct WM_LIB_STATUS WM_LIB_STATUS;
 typedef struct WM_FILE_DATA WM_FILE_DATA;
 
-/* public functions */
+/* public functions
+ *
+ * This is the interface for the Wildmidi Loader
+ * The loader (alas wildmidi itself) needs a Wildmidi config file
+ * in which it's described where to find the GUS patches to be
+ * used in synthetizing the sounds.
+ */
+
 bool WM_setopts(const char* cfg_file, uint16_t samplerate, uint16_t mixeropts);
 
 ALLEGRO_SAMPLE *load_sample_wildmidi(const char *filename);
