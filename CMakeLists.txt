@@ -1,5 +1,7 @@
-project(test_al_wildmidi_loader C)
+project(al_wildmidi_loader C)
 cmake_minimum_required(VERSION 2.8)
+
+set(TEST_EXE "al_WM_test")
 
 
 #set the build type
@@ -54,8 +56,6 @@ set(DEP_ALLEG_LIBS ogg opengl32)
 #set Wildmidi deps
 set(WILDMIDI_LIBS WildMidi)
 
-#set NCURSES deps
-set(NCURSES_LIBS ncurses)
 
 # set c++11 flags
 # we use with C++11 standard features when possible and statically link
@@ -63,13 +63,12 @@ set(NCURSES_LIBS ncurses)
 # NOTE: this might still inject a dependency to libwinpthreads on Windows
 # to avoid that use a NON-posix threads enabled compiler.
 # some handy g++ switches, we are still on windows only
-set(CMAKE_CXX_FLAGS "-std=c++11 -static-libstdc++ -static-libgcc")
+set(CMAKE_CXX_FLAGS "-std=c99 -static-libstdc++ -static-libgcc")
 
 aux_source_directory(. SRC_LIST)
-add_executable(${PROJECT_NAME} ${GLOB_SOURCE})
+add_executable(${TEST_EXE} ${GLOB_SOURCE})
 
-target_link_libraries(${PROJECT_NAME} ${ALLEGRO_LIBS})
-target_link_libraries(${PROJECT_NAME} ${DEP_ALLEG_LIBS})
-target_link_libraries(${PROJECT_NAME} ${WILDMIDI_LIBS})
-target_link_libraries(${PROJECT_NAME} ${NCURSES_LIBS})
+target_link_libraries(${TEST_EXE} ${ALLEGRO_LIBS})
+target_link_libraries(${TEST_EXE} ${DEP_ALLEG_LIBS})
+target_link_libraries(${TEST_EXE} ${WILDMIDI_LIBS})
 

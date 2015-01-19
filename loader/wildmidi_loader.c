@@ -15,6 +15,7 @@ typedef struct _WM_Info _WM_Info;
 
 struct WM_LIB_STATUS{
    bool           initialized;
+   bool           registered;
    char           *cfgfile;
    uint16_t       samplerate;
    uint16_t       mixeropts;
@@ -26,13 +27,14 @@ struct WM_FILE_DATA{
    midi           *handle;
    _WM_Info       *wmfdata;
    double         loop_start;       //
-   double         loop_end;         // These are fro stream implementation
-   ALLEGRO_THREAD *feed_thread;     //
+   double         loop_end;         // These are needed for streams
+   ALLEGRO_THREAD *feed_thread;     // implementation
    bool           quit_feed_thread; //
 } ;
 
 
 static WM_LIB_STATUS cur_WM_opts = {
+                     false,
                      false,
                      NULL,
                      WM_DEFAULT_SAMPLERATE,
@@ -40,8 +42,22 @@ static WM_LIB_STATUS cur_WM_opts = {
 };
 
 
+/*
+ * Helper Function for feeder thread
+ */
+static inline void maybe_lock_mutex(ALLEGRO_MUTEX* mutex){
+   if (mutex)
+      al_lock_mutex(mutex);
+}
 
-bool WM_init(void){
+static inline void maybe_unlock_mutex(ALLEGRO_MUTEX* mutex){
+   if (mutex)
+      al_unlock_mutex(mutex);
+}
+
+bool WM_loader_init(bool al_register){
+
+   bool ret = false;
 
    if (cur_WM_opts.initialized)
       return true;
@@ -58,16 +74,43 @@ bool WM_init(void){
    cur_WM_opts.initialized = !WildMidi_Init(cur_WM_opts.cfgfile,
                                            cur_WM_opts.samplerate,
                                            cur_WM_opts.mixeropts);
+   ret = cur_WM_opts.initialized;
 
-      return cur_WM_opts.initialized;
+   if (al_register)
+      ret &= WM_register_loaders();
+
+   return ret;
 }
 
-bool WM_shutdown(void){
+bool WM_register_loaders(void){
+   bool ret = true;
+   ret &= al_register_sample_loader(".xmi", load_sample_wildmidi);
+   ret &= al_register_sample_loader_f(".xmi", load_sample_wildmidi_f);
+   ret &= al_register_audio_stream_loader(".xmi", load_wildmidi_audio_stream);
+   ret &= al_register_audio_stream_loader_f(".xmi", load_wildmidi_audio_stream_f);
+   if (ret) cur_WM_opts.registered = true;
+   return ret;
+}
+
+bool WM_unregister_loaders(void){
+   bool ret = false;
+   ret &= al_register_sample_loader(".xmi", NULL);
+   ret &= al_register_sample_loader_f(".xmi", NULL);
+   ret &= al_register_audio_stream_loader(".xmi", NULL);
+   ret &= al_register_audio_stream_loader_f(".xmi", NULL);
+   if (ret) cur_WM_opts.registered = true;
+   return ret;
+}
+
+
+bool WM_loader_shutdown(void){
 
    if (!cur_WM_opts.initialized)
       return true;
 
    cur_WM_opts.initialized = false;
+   WM_unregister_loaders();
+   cur_WM_opts.registered = false;
    al_free(cur_WM_opts.cfgfile);
    cur_WM_opts.cfgfile = NULL;
    cur_WM_opts.samplerate = WM_DEFAULT_SAMPLERATE;
@@ -93,8 +136,9 @@ WM_FILE_DATA *WM_open(ALLEGRO_FILE *fp){
     * We're counting on condition shortcircuit so if not inited shall call
     * WM_init(), avoiding it otherwise.
     */
-   if (!cur_WM_opts.initialized && !WM_init()) {
-      ALLEGRO_WARN("Failed to properly Initialize WildMidi!\n");
+   if (!cur_WM_opts.initialized) {
+      ALLEGRO_WARN("Loader has not been initialized before calling loader "
+                   "functions\n");
       return NULL;
    }
    /*
@@ -102,6 +146,7 @@ WM_FILE_DATA *WM_open(ALLEGRO_FILE *fp){
     * WildMidi_OpenBuffer(), cause otherwise this could not have an
     * ALLEGRO_FILE implementation.
     * This MIGHT be suboptimal, still MIDI and XMI files are usually small.
+    * It performs well also with high samplerates (>44100).
     */
    midibufsize = al_fsize(fp);
    midifilebuffer = al_malloc(midibufsize);
@@ -142,9 +187,6 @@ static bool WM_stream_seek(ALLEGRO_AUDIO_STREAM * stream, double time)
 {
    WM_FILE_DATA *wmfile = (WM_FILE_DATA *) al_get_audio_stream_userdata(stream);
 
-//   int align = al_get_audio_depth_size(ALLEGRO_AUDIO_DEPTH_INT16)
-//               * al_get_channel_count(ALLEGRO_CHANNEL_CONF_2);
-   /* following the desired seek position in samples */
    unsigned long cpos= time * (double)cur_WM_opts.samplerate;
 
    if (cpos >= wmfile->wmfdata->approx_total_samples ||
@@ -228,9 +270,10 @@ void WM_stop_feed_thread(ALLEGRO_AUDIO_STREAM *stream)
 {
    ALLEGRO_EVENT quit_event;
    WM_FILE_DATA *wmfile = al_get_audio_stream_userdata(stream);
+   ALLEGRO_EVENT_SOURCE *evsource = al_get_audio_stream_event_source(stream);
 
    quit_event.type = WM_QUIT_FEED_THREAD;
-   al_emit_user_event(al_get_audio_stream_event_source(stream), &quit_event, NULL);
+   al_emit_user_event(evsource, &quit_event, NULL);
    al_join_thread(wmfile->feed_thread, NULL);
    al_destroy_thread(wmfile->feed_thread);
 
@@ -254,7 +297,7 @@ static void WM_stream_close(ALLEGRO_AUDIO_STREAM *stream)
 }
 
 /* wildmidi_feed_stream:
- * This runs in another thread and feeds the stream as necessary.
+ * This runs in separte thread and feeds the stream as necessary.
  * Uses WM_stream backend in this translation unit.
  */
 void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
@@ -265,6 +308,7 @@ void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
    (void)self;
    WM_FILE_DATA *wmfile = (WM_FILE_DATA*) al_get_audio_stream_userdata(stream);
    volatile bool stream_is_draining = false;
+   ALLEGRO_MUTEX *str_mutex = al_get_audio_stream_mutex(stream);
 
    ALLEGRO_DEBUG("Stream feeder thread started for stream at %x.\n", stream);
 
@@ -273,7 +317,7 @@ void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
 
    wmfile->quit_feed_thread = false;
 
-   while (!wmfile->quit_feed_thread) {
+   while (!wmfile->quit_feed_thread && stream) {
       char *fragment;
       ALLEGRO_EVENT event;
 
@@ -297,9 +341,9 @@ void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
                al_get_channel_count(ALLEGRO_CHANNEL_CONF_2) *
                al_get_audio_depth_size(ALLEGRO_AUDIO_DEPTH_INT16);
 
-         al_lock_mutex(al_get_audio_stream_mutex(stream));
+         maybe_lock_mutex(str_mutex);
          bytes_written = WM_stream_update(stream, fragment, bytes);
-         al_unlock_mutex(al_get_audio_stream_mutex(stream));
+         maybe_unlock_mutex(str_mutex);
 
         /* In case it reaches the end of the stream source, stream feeder will
          * fill the remaining space with silence. If we should loop, rewind the
@@ -310,11 +354,11 @@ void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
                 al_get_audio_stream_playmode(stream) == _ALLEGRO_PLAYMODE_STREAM_ONEDIR) {
             size_t bw;
             WM_stream_rewind(stream);
-            al_lock_mutex(al_get_audio_stream_mutex(stream));
+            maybe_lock_mutex(str_mutex);
             bw = WM_stream_update(stream, fragment + bytes_written,
                bytes - bytes_written);
             bytes_written += bw;
-            al_unlock_mutex(al_get_audio_stream_mutex(stream));
+            maybe_unlock_mutex(str_mutex);
          }
 
          if (!al_set_audio_stream_fragment(stream, fragment)) {
@@ -349,7 +393,7 @@ void *WM_feed_stream(ALLEGRO_THREAD *self, void *vstream)
 
 /* public functions */
 
-bool WM_setopts(const char *cfg, uint16_t rate, uint16_t mixeropts){
+bool WM_loader_setopts(const char *cfg, uint16_t rate, uint16_t mixeropts){
 
    cur_WM_opts.cfgfile = al_realloc(cur_WM_opts.cfgfile, strlen(cfg) + 1);
    strcpy(cur_WM_opts.cfgfile, cfg);
@@ -430,7 +474,7 @@ ALLEGRO_SAMPLE *load_sample_wildmidi_f(ALLEGRO_FILE *fp){
  */
 
 
-ALLEGRO_AUDIO_STREAM *wildmidi_load_audio_stream(const char *filename,
+ALLEGRO_AUDIO_STREAM *load_wildmidi_audio_stream(const char *filename,
    size_t buffer_count, unsigned int samples)
 {
    ALLEGRO_FILE *f;
@@ -441,7 +485,7 @@ ALLEGRO_AUDIO_STREAM *wildmidi_load_audio_stream(const char *filename,
    if (!f)
       return NULL;
 
-   stream = wildmidi_load_audio_stream_f(f, buffer_count, samples);
+   stream = load_wildmidi_audio_stream_f(f, buffer_count, samples);
    if (!stream) {
       al_fclose(f);
    }
@@ -449,7 +493,7 @@ ALLEGRO_AUDIO_STREAM *wildmidi_load_audio_stream(const char *filename,
    return stream;
 }
 
-ALLEGRO_AUDIO_STREAM *wildmidi_load_audio_stream_f(ALLEGRO_FILE* f,
+ALLEGRO_AUDIO_STREAM *load_wildmidi_audio_stream_f(ALLEGRO_FILE* f,
    size_t buffer_count, unsigned int samples)
 {
    WM_FILE_DATA* wmfiledata;
