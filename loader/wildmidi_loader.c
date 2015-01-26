@@ -13,7 +13,8 @@ ALLEGRO_DEBUG_CHANNEL("acodec")
 
 typedef struct _WM_Info _WM_Info;
 
-struct WM_LIB_STATUS{
+
+struct WM_LIB_STATUS {
    bool           initialized;
    bool           registered;
    char           *cfgfile;
@@ -21,7 +22,7 @@ struct WM_LIB_STATUS{
    uint16_t       mixeropts;
 } ;
 
-struct WM_FILE_DATA{
+struct WM_FILE_DATA {
    ALLEGRO_FILE   *fp;
    uint8_t        *midifilebuffer;
    midi           *handle;
@@ -30,7 +31,7 @@ struct WM_FILE_DATA{
    double         loop_end;         // These are needed for streams
    ALLEGRO_THREAD *feed_thread;     // implementation
    bool           quit_feed_thread; //
-} ;
+};
 
 
 static WM_LIB_STATUS cur_WM_opts = {
@@ -76,7 +77,7 @@ bool WM_loader_init(bool al_register){
                                            cur_WM_opts.mixeropts);
    ret = cur_WM_opts.initialized;
 
-   if (al_register)
+   if (ret && al_register)           /* leaning on shortcircuit */
       ret &= WM_register_loaders();
 
    return ret;
@@ -93,12 +94,12 @@ bool WM_register_loaders(void){
 }
 
 bool WM_unregister_loaders(void){
-   bool ret = false;
+   bool ret = true;
    ret &= al_register_sample_loader(".xmi", NULL);
    ret &= al_register_sample_loader_f(".xmi", NULL);
    ret &= al_register_audio_stream_loader(".xmi", NULL);
    ret &= al_register_audio_stream_loader_f(".xmi", NULL);
-   if (ret) cur_WM_opts.registered = true;
+   if (ret) cur_WM_opts.registered = false;
    return ret;
 }
 
@@ -125,19 +126,14 @@ WM_FILE_DATA *WM_open(ALLEGRO_FILE *fp){
    midi           *handle;
    uint8_t        *midifilebuffer;
    size_t         midibufsize;
-   int ret = 0;
 
    if (!fp){
       ALLEGRO_WARN("WM_open: Failed to open file !\n");
       return NULL;
    }
-   /*
-    * Handle initialization here.
-    * We're counting on condition shortcircuit so if not inited shall call
-    * WM_init(), avoiding it otherwise.
-    */
+
    if (!cur_WM_opts.initialized) {
-      ALLEGRO_WARN("Loader has not been initialized before calling loader "
+      ALLEGRO_WARN("WildMidi has not been initialized before calling loader "
                    "functions\n");
       return NULL;
    }
@@ -153,7 +149,7 @@ WM_FILE_DATA *WM_open(ALLEGRO_FILE *fp){
    al_fread(fp, midifilebuffer, midibufsize);
    handle = WildMidi_OpenBuffer(midifilebuffer, midibufsize);
    if (!handle) {
-      ALLEGRO_WARN("WM_open: Coudl not access MIDI data\n");
+      ALLEGRO_WARN("WM_open: Could not access MIDI data\n");
       return NULL;
    }
    wminfo = WildMidi_GetInfo(handle);
@@ -293,7 +289,7 @@ static void WM_stream_close(ALLEGRO_AUDIO_STREAM *stream)
    al_fclose(wmfile->fp);
    WM_close(wmfile);
    wmfile->feed_thread = NULL;
-   al_set_audio_stream_userdata(stream, NULL);
+   //al_set_audio_stream_userdata(stream, NULL);
 }
 
 /* wildmidi_feed_stream:
@@ -510,7 +506,7 @@ ALLEGRO_AUDIO_STREAM *load_wildmidi_audio_stream_f(ALLEGRO_FILE* f,
                                    ALLEGRO_CHANNEL_CONF_2);
 
    if (stream) {
-      al_set_audio_stream_userdata(stream, wmfiledata);
+      al_set_audio_stream_userdata(stream, wmfiledata, WM_stream_close);
       wmfiledata->loop_start = 0.0;
       wmfiledata->loop_end = WM_stream_get_length(stream);
       wmfiledata->feed_thread = al_create_thread(WM_feed_stream, stream);

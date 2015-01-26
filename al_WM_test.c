@@ -89,9 +89,14 @@ int main(int argc, char *argv[])
       printf("ERROR cannot install keyboard in Allegro\n");
       return -3;
    }
+   ALLEGRO_EVENT_QUEUE *kqueue = al_create_event_queue();
+   al_register_event_source(kqueue, al_get_keyboard_event_source());
+
+   ALLEGRO_DISPLAY *main_display = NULL;
+   main_display = al_create_display(320,240);
 
    /*
-    * Provide a default mixer and voice, shoudl be pretty portable.
+    * Provide a default mixer and voice, INT16 voice should be pretty portable.
     */
    ALLEGRO_MIXER *mixer = al_create_mixer(44100, ALLEGRO_AUDIO_DEPTH_FLOAT32,
                                           ALLEGRO_CHANNEL_CONF_2);
@@ -139,7 +144,13 @@ int main(int argc, char *argv[])
    }
 
    fflush(stdout);
-   while(!getchar());{};
+
+   while(1){
+      ALLEGRO_EVENT evt;
+      al_wait_for_event(kqueue, &evt);
+      if (evt.keyboard.keycode == ALLEGRO_KEY_X) break;
+   }
+   //while(!getchar());{};
 
 
    al_destroy_sample_instance(splinst);

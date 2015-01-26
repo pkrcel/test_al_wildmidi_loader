@@ -66,7 +66,7 @@ ALLEGRO_SAMPLE *load_sample_wildmidi_f(ALLEGRO_FILE *fp);
 
 /*
  * Loader for Audio streams
- * Cureent implementation copies to a memory buffer the whole file contents
+ * Current implementation copies to a memory buffer the whole file contents
  * and uses WildMidi_OpenBuffer() to get a handle of the MIDI file.
  *
  */
