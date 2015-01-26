@@ -65,9 +65,10 @@ int main(int argc, char *argv[])
    bool usestream = false;
 
    if (argc < 2) {
-      printf("Usage: %s <filename>\n [implementation]", getFileName(argv[0]));
-      printf("where [implementation] can be:\n");
-      printf("           sample     to use the ALLEGRO_SAMPLE implementation <default>\n");
+      printf("Error: no filename given.\n");
+      printf("Usage: %s <filename> [implementation]\n", getFileName(argv[0]));
+      printf("\nwhere [implementation] can be:\n");
+      printf("<default>  sample     to use the ALLEGRO_SAMPLE implementation\n");
       printf("           stream     to use the ALLEGRO_AUDIO_STREAM implementation\n");
       return -0xFFFFFFF;
    }
