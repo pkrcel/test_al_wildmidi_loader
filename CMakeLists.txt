@@ -72,3 +72,13 @@ target_link_libraries(${TEST_EXE} ${ALLEGRO_LIBS})
 target_link_libraries(${TEST_EXE} ${DEP_ALLEG_LIBS})
 target_link_libraries(${TEST_EXE} ${WILDMIDI_LIBS})
 
+set(dest ${CMAKE_BINARY_DIR})
+set(src ${CMAKE_SOURCE_DIR})
+set(basename "DEMO.XMI")
+
+add_custom_command(
+            OUTPUT  "${dest}/${basename}"
+            DEPENDS "${src}/${basename}"
+            COMMAND "${CMAKE_COMMAND}" -E copy
+                    "${src}/${basename}" "${dest}/${basename}"
+            )

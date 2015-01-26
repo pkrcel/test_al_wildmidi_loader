@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
 
    fflush(stdout);
 
-   while(1){
+   while(true) {
       ALLEGRO_EVENT evt;
       al_wait_for_event(kqueue, &evt);
       if (evt.keyboard.keycode == ALLEGRO_KEY_X) break;
